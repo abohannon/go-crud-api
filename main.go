@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
 )
 
 type Article struct {
@@ -15,6 +17,12 @@ type Article struct {
 	Title 		string `json:"Title"`
 	Desc 			string `json:"desc"`
 	Content 	string `json:"content"`
+}
+
+type Product struct {
+	Name 			string
+	Price 		float64
+	Available bool
 }
 
 type Response struct {
@@ -123,19 +131,66 @@ func handleRequests() {
 	myRouter.HandleFunc("/article/{id}", returnSingleArticle).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(":10000", myRouter))
+}
 
-	// http.HandleFunc("/", homePage)
-	// http.HandleFunc("/articles", returnAllArticles)
-	// log.Fatal(http.ListenAndServe(":10000", nil))
+func createProductTable(db *sql.DB) {
+	query := `CREATE TABLE IF NOT EXISTS product (
+		id SERIAL PRIMARY KEY,
+		name VARCHAR(100) NOT NULL,
+		price NUMERIC(6,2) NOT NULL,
+		available BOOLEAN,
+		created timestamp DEFAULT NOW()
+	)`
+
+	_, err := db.Exec(query)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func insertProduct(db *sql.DB, product Product) int {
+	query := `INSERT INTO product (name, price, available)
+		VALUES ($1, $2, $3) RETURNING id`
+
+	var pk int
+	err := db.QueryRow(query, product.Name, product.Price, product.Available).Scan(&pk)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return pk
 }
 
 func main() {
 	fmt.Println("Go server running...")
 
+	connStr := "postgres://postgres:secret@localhost:5433/gopgtest?sslmode=disable"
+
+ db, err := sql.Open("postgres", connStr)
+
+ defer db.Close()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
 	Articles = []Article{
 		{ Id: "1", Title: "Hello", Desc: "Article Description", Content: "Article Content" },
 		{ Id: "2", Title: "Hello 2", Desc: "Article Description", Content: "Article Content" },
 	}
+
+	createProductTable(db)
+
+	product := Product{"Book", 9.99, true}
+	pk := insertProduct(db, product)
+
+	fmt.Printf("ID = %d\n", pk)
 
 	handleRequests()
 }
